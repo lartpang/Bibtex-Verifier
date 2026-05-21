@@ -2,8 +2,8 @@
   "use strict";
   const B = window.BibLib;
   const CROSSREF_API="https://api.crossref.org/works",SS_MATCH="https://api.semanticscholar.org/graph/v1/paper/search/match",
-    SS_SEARCH="https://api.semanticscholar.org/graph/v1/paper/search",SS_PAPER="https://api.semanticscholar.org/graph/v1/paper",SS_FIELDS="title,authors,year,venue,publicationVenue,externalIds",
-    DBLP_API="https://dblp.org/search/pub/api",ARXIV_API="https://export.arxiv.org/api/query",
+    SS_SEARCH="https://api.semanticscholar.org/graph/v1/paper/search",SS_PAPER="https://api.semanticscholar.org/graph/v1/paper",SS_FIELDS="paperId,url,title,authors,year,venue,publicationVenue,externalIds",
+    DBLP_API="https://dblp.org/search/publ/api",ARXIV_API="https://export.arxiv.org/api/query",
     OR_API="https://api2.openreview.net",ZENODO_API="https://zenodo.org/api/records",MAX_RETRIES=2,RETRY_MS=800,FETCH_TIMEOUT=8000;
 
   const rS={ssD:300,crD:80,dblpD:200,arxivD:200,orD:300,cvfD:500,zenodoD:250,
@@ -35,13 +35,25 @@
     }return null;}
 
   function bU(b,p){const u=new URL(b);for(const[k,v]of Object.entries(p))u.searchParams.set(k,v);return u.toString();}
+  function jP(url,{timeout=FETCH_TIMEOUT}={}){
+    return new Promise((resolve,reject)=>{
+      if(typeof document==="undefined"){reject(new TypeError("JSONP unavailable"));return;}
+      const cb=`__bibDblpJsonp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const u=new URL(url);u.searchParams.set("callback",cb);
+      const s=document.createElement("script");let done=false;
+      const clean=()=>{if(done)return;done=true;clearTimeout(tid);delete window[cb];s.remove();};
+      window[cb]=data=>{clean();resolve(data);};
+      s.onerror=()=>{clean();reject(new TypeError("JSONP load failed"));};
+      const tid=setTimeout(()=>{clean();const e=new Error("JSONP timeout");e.name="AbortError";reject(e);},timeout);
+      s.src=u.toString();document.head.appendChild(s);
+    });}
 
   async function searchSSMatch(t,h){const d=await rF(bU(SS_MATCH,{query:t,fields:SS_FIELDS}),{is404:true,headers:h});if(!d?.data?.[0])return null;return B.ssToStandard(d.data[0]);}
   async function searchSSByDoi(doi,h){const d=await rF(bU(`${SS_PAPER}/${encodeURIComponent(`DOI:${doi}`)}`,{fields:SS_FIELDS}),{is404:true,headers:h});return d?[B.ssToStandard(d)]:[];}
   async function searchSSSearch(t,h){const d=await rF(bU(SS_SEARCH,{query:t,limit:"5",fields:SS_FIELDS}),{headers:h});return(d?.data||[]).map(B.ssToStandard);}
   async function searchCrossref(t){const d=await rF(bU(CROSSREF_API,{"query.title":t,rows:"5",select:"title,author,published-print,published-online,published,issued,container-title,group-title,event,volume,issue,page,DOI,publisher,URL,type,ISSN,ISBN"}));return(d?.message?.items||[]).map(B.crossrefToStandard);}
   async function searchCrossrefDoi(doi){const d=await rF(`${CROSSREF_API}/${encodeURIComponent(doi)}`);return d?.message?[B.crossrefToStandard(d.message)]:[];}
-  async function searchDBLP(t){const d=await rF(bU(DBLP_API,{q:t,format:"json",h:"5"}));const h=d?.result?.hits?.hit;if(!h)return[];return(Array.isArray(h)?h:[h]).map(x=>B.dblpToStandard(x.info)).filter(Boolean);}
+  async function searchDBLP(t){const d=await jP(bU(DBLP_API,{q:t,format:"jsonp",h:"5",c:"0"}),{timeout:12000});const h=d?.result?.hits?.hit;if(!h)return[];return(Array.isArray(h)?h:[h]).map(x=>B.dblpToStandard(x.info)).filter(Boolean);}
   async function searchZenodo(t,e){
     const zd=B.zenodoDoiFromEntry?B.zenodoDoiFromEntry(e):"";
     const q=zd?`doi:"${zd}"`:`title:"${t.replace(/"/g," ")}"`;
@@ -52,7 +64,8 @@
     while((em=eR.exec(xml))!==null){const ex=em[1],tM=/<title[^>]*>([\s\S]*?)<\/title>/i.exec(ex),iM=/<id>([\s\S]*?)<\/id>/i.exec(ex),pM=/<published>([\s\S]*?)<\/published>/i.exec(ex);
       const aR=/<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/g,auths=[];let am;while((am=aR.exec(ex))!==null)auths.push(am[1].trim());
       const aid=(iM?.[1]||"").replace(/^https?:\/\/arxiv\.org\/abs\//i,"").replace(/v\d+$/i,""),pt=(tM?.[1]||"").replace(/\s+/g," ").trim(),yr=pM?pM[1].slice(0,4):"";
-      papers.push({title:pt,author:auths.map(n=>{const p=n.split(/\s+/).filter(Boolean);return p.length>=2?`${p[p.length-1]}, ${p.slice(0,-1).join(" ")}`:n;}).join(" and "),year:yr,journal:aid?`arXiv preprint arXiv:${aid}`:"arXiv preprint",volume:"",number:"",pages:"",doi:aid?`10.48550/arXiv.${aid}`:"",publisher:"",url:aid?`https://arxiv.org/abs/${aid}`:(iM?.[1]||""),_source:"arxiv"});}return papers;}
+      const sourceUrl=aid?`https://arxiv.org/abs/${aid}`:(iM?.[1]||"");
+      papers.push({title:pt,author:auths.map(n=>{const p=n.split(/\s+/).filter(Boolean);return p.length>=2?`${p[p.length-1]}, ${p.slice(0,-1).join(" ")}`:n;}).join(" and "),year:yr,journal:aid?`arXiv preprint arXiv:${aid}`:"arXiv preprint",volume:"",number:"",pages:"",doi:aid?`10.48550/arXiv.${aid}`:"",publisher:"",url:sourceUrl,_source:"arxiv",_source_url:sourceUrl});}return papers;}
   async function searchArxivById(id){
     if(!id)return[];
     const xml=await rF(bU(ARXIV_API,{id_list:id,start:"0",max_results:"1"}),{txt:true});
@@ -69,6 +82,7 @@
   async function lookupTiered(title,entry,logFn,getEngines,getApiKey){
     _logCb=logFn;
     const enabled=new Set(getEngines()),ct=B.stripLatex(title);
+    enabled.add("zenodo");enabled.add("arxiv");
     const ssKey=getApiKey?getApiKey("semantic_scholar"):"";
     const ssH=ssKey?{"x-api-key":ssKey}:{};
     const allCandidates=[],seen=new Set();
@@ -79,7 +93,7 @@
     // ── Tier 1: DBLP + CrossRef + SS in parallel ──────────────────
     const t1Tasks=[];
     logDisabled("dblp","T1 DBLP");logDisabled("crossref","T1 CrossRef");logDisabled("semantic_scholar","T1 S2");
-    if(enabled.has("dblp"))t1Tasks.push(searchDBLP(ct).then(r=>{logFn("query",`T1 DBLP: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
+    if(enabled.has("dblp"))t1Tasks.push(searchDBLP(ct).then(r=>{logFn("query",`T1 DBLP: ${ct.slice(0,55)}`);return r;}).catch(e=>{logFn("warning",`T1 DBLP failed: ${e?.message||e?.name||"error"}`);return[];}));
     if(enabled.has("crossref"))t1Tasks.push(searchCrossref(ct).then(r=>{logFn("query",`T1 CrossRef: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
     if(enabled.has("semantic_scholar"))t1Tasks.push((async()=>{
       logFn("query",`T1 S2: ${ct.slice(0,55)}`);

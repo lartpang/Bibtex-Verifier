@@ -13,11 +13,11 @@
       paste_placeholder: "Paste your BibTeX content here, e.g. from Overleaf...\n\n@article{example2024,\n  title={Your Paper Title},\n  author={Author, First and Author, Second},\n  year={2024},\n  journal={Some Journal}\n}",
       start_verification: "Start verification", pause: "Pause", resume: "Continue",
       download: "Download Corrected .bib",
-      badge_parsed: "Parsed", badge_verified: "Verified", badge_updated: "Needs Update",
+      badge_parsed: "Parsed", badge_review_all: "Review",
       badge_review: "Needs Update", badge_notfound: "Not Found",
       badge_duplicates: "Duplicates", badge_error: "Error",
-      status_parsed: "Parsed", status_verified: "Verified", status_updated: "Needs Update",
-      status_needs_review: "Needs Update", status_needs_update: "Needs Update", status_not_found: "Not Found",
+      status_parsed: "Parsed", status_verified: "Review", status_updated: "Review",
+      status_needs_review: "Review", status_needs_update: "Review", status_not_found: "Not Found",
       status_error: "Error", status_duplicate: "Duplicate",
       view_original: "Original", view_found: "Found", view_edit: "Edit", view_diff: "Diff",
       adopt_found: "Adopt all found values", close: "×",
@@ -37,7 +37,7 @@
       paste_first: "Please paste your BibTeX content first.",
       select_source: "Select at least one search source.",
       settings_title: "Search Sources (Tiered)",
-      settings_help: "Layered search: Tier 1 (published records) → Tier 2 (conference proceedings) → Tier 3 (repositories and preprints). Zenodo is queried only when the entry already mentions Zenodo.",
+      settings_help: "Layered search: Tier 1 (published records) to Tier 2 (conference proceedings) to Tier 3 (repositories and preprints). Zenodo and arXiv are always enabled as fallback sources; Zenodo is queried only when the entry already mentions Zenodo.",
       tier1: "Tier 1 — Published Records", tier2: "Tier 2 — Conference Proceedings", tier3: "Tier 3 — Repositories & Preprints",
       copy: "Copy", copied: "Copied!",
       toc_title: "Contents",
@@ -62,11 +62,11 @@
       paste_placeholder: "在此粘贴 BibTeX 内容，例如来自 Overleaf...\n\n@article{example2024,\n  title={Your Paper Title},\n  author={Author, First and Author, Second},\n  year={2024},\n  journal={Some Journal}\n}",
       start_verification: "开始验证", pause: "暂停", resume: "继续",
       download: "下载修正后的 .bib",
-      badge_parsed: "已解析", badge_verified: "已验证", badge_updated: "需要更新",
+      badge_parsed: "已解析", badge_review_all: "复核",
       badge_review: "需要更新", badge_notfound: "未找到",
       badge_duplicates: "重复", badge_error: "错误",
-      status_parsed: "已解析", status_verified: "已验证", status_updated: "需要更新",
-      status_needs_review: "需要更新", status_needs_update: "需要更新", status_not_found: "未找到",
+      status_parsed: "已解析", status_verified: "复核", status_updated: "复核",
+      status_needs_review: "复核", status_needs_update: "复核", status_not_found: "未找到",
       status_error: "错误", status_duplicate: "重复",
       view_original: "原始内容", view_found: "检索结果", view_edit: "编辑区", view_diff: "差异对比",
       adopt_found: "采用所有检索结果", close: "×",
@@ -86,7 +86,7 @@
       paste_first: "请先粘贴 BibTeX 内容。",
       select_source: "请至少选择一个检索来源。",
       settings_title: "检索来源（分层）",
-      settings_help: "分层检索：第一层（已出版记录）→ 第二层（会议论文集）→ 第三层（仓储记录与预印本）。仅当条目已包含 Zenodo 线索时才查询 Zenodo。",
+      settings_help: "分层检索：第一层（已出版记录）到第二层（会议论文集）到第三层（仓储记录与预印本）。Zenodo 和 arXiv 作为保底来源始终启用；仅当条目已包含 Zenodo 线索时才查询 Zenodo。",
       tier1: "第一层 — 已出版记录", tier2: "第二层 — 会议论文集", tier3: "第三层 — 仓储记录与预印本",
       copy: "复制", copied: "已复制！",
       toc_title: "目录",
@@ -183,9 +183,14 @@
     return status === "needs_update" || status === "updated" || status === "needs_review";
   }
 
+  function hasEditableDetail(status) {
+    return status === "verified" || isNeedsUpdateStatus(status);
+  }
+
   function filterMatchesResult(r, filter) {
     if (filter === "all") return true;
     if (filter === "duplicate") return !!r.duplicate_of;
+    if (filter === "review") return hasEditableDetail(r.status);
     if (filter === "needs_update") return isNeedsUpdateStatus(r.status);
     return r.status === filter;
   }
@@ -222,7 +227,7 @@
       const el = document.createElement("div");
       el.className = "toc-item";
       el.dataset.tocEntry = r.index;
-      const dotCls = r.duplicate_of ? "toc-dot-duplicate" : "toc-dot-" + r.status;
+      const dotCls = r.duplicate_of ? "toc-dot-duplicate" : (hasEditableDetail(r.status) ? "toc-dot-review" : "toc-dot-" + r.status);
       el.innerHTML =
         '<span class="toc-item-num">' + (i + 1) + '</span>' +
         '<span class="toc-item-status ' + dotCls + '"></span>' +
@@ -310,20 +315,26 @@
       { key: "tier2", engines: [
         { id: "cvf", label: "CVF (CVPR/ICCV/WACV)" }, { id: "openreview", label: "OpenReview" }
       ]},
-      { key: "tier3", engines: [{ id: "zenodo", label: "Zenodo" }, { id: "arxiv", label: "arXiv" }] }
+      { key: "tier3", fixed: true, engines: [{ id: "zenodo", label: "Zenodo" }, { id: "arxiv", label: "arXiv" }] }
     ];
     let html = "";
     for (const tier of tiers) {
       html += '<div class="engine-tier"><div class="tier-label">' + esc(t(tier.key)) + '</div><div class="tier-engines">';
       for (const e of tier.engines) {
-        const checked = Object.prototype.hasOwnProperty.call(prev, e.id) ? prev[e.id] : true;
-        html += '<label class="option-toggle engine-option"><input type="checkbox" class="opt-search-engine" data-engine="' + e.id + '"' + (checked ? " checked" : "") + ' /><span>' + esc(e.label) + '</span></label>';
+        if (tier.fixed) {
+          html += '<span class="engine-option engine-option-fixed" data-engine-fixed="' + escAttr(e.id) + '"><span class="engine-fixed-icon">on</span><span>' + esc(e.label) + '</span></span>';
+        } else {
+          const checked = Object.prototype.hasOwnProperty.call(prev, e.id) ? prev[e.id] : true;
+          html += '<label class="option-toggle engine-option"><input type="checkbox" class="opt-search-engine" data-engine="' + e.id + '"' + (checked ? " checked" : "") + ' /><span>' + esc(e.label) + '</span></label>';
+        }
       }
       html += '</div></div>';
     }
     searchEngineOptions.innerHTML = html;
   }
-  function getSelectedSearchEngines() { return [...document.querySelectorAll(".opt-search-engine[data-engine]:checked")].map(el => el.dataset.engine); }
+  function getSelectedSearchEngines() {
+    return [...new Set([...document.querySelectorAll(".opt-search-engine[data-engine]:checked")].map(el => el.dataset.engine).concat(["zenodo", "arxiv"]))];
+  }
   renderSearchEngineOptions();
 
   // Review mode options
@@ -595,6 +606,7 @@
   }
 
   function statusLabel(s) {
+    if (hasEditableDetail(s)) return t("badge_review_all");
     const map = { parsed:"status_parsed", verified:"status_verified", updated:"status_updated",
       needs_review:"status_needs_review", needs_update:"status_needs_update", not_found:"status_not_found", error:"status_error", duplicate:"status_duplicate" };
     return t(map[s] || "status_parsed");
@@ -617,7 +629,7 @@
   }
 
   function hydrateExpandedCard(r) {
-    if (expandedCards.has(r.index) && isNeedsUpdateStatus(r.status)) renderDetailInCard(r.index);
+    if (expandedCards.has(r.index) && hasEditableDetail(r.status)) renderDetailInCard(r.index);
   }
 
   function renderEntryCard(r) {
@@ -675,10 +687,66 @@
     return '<tr class="diff-row" data-entry="' + idx + '" data-field="' + escAttr(d.field) + '" data-action="' + escAttr(ca) + '" data-enrichment="' + (isEn ? "1" : "") + '" data-found-val="' + escAttr(fa) + '" data-original-val="' + escAttr(oa) + '"><td class="field-name"><span class="field-name-pill">' + esc(d.field) + '</span></td><td class="val-col val-col-original">' + origCell + '</td><td class="val-col val-col-suggested">' + sugCell + '</td><td class="field-actions-mini"><button class="fa-btn-x ' + (ca === "remove" ? "active" : "") + '" title="' + (isEn ? "Don\'t add" : "Remove field") + '" data-entry="' + idx + '" data-field="' + escAttr(d.field) + '" data-action="remove" data-val="">' + xSvg + '</button></td></tr>';
   }
 
+  function candidateSourceUrl(c) {
+    const sourceUrl = String(c?._source_url || "").trim();
+    if (/^https?:\/\//i.test(sourceUrl)) return sourceUrl;
+    const source = String(c?._source || "").toLowerCase();
+    const doi = c && c.doi ? B.normalizeDoi(c.doi) : "";
+    if (source.includes("crossref") || source === "cr") {
+      const title = B.stripLatex(c?.title || "").trim();
+      return title ? "https://search.crossref.org/search/works?q=" + encodeURIComponent(title) + "&from_ui=yes" : "";
+    }
+    if ((source.includes("semantic_scholar") || source === "ss") && doi) return "https://api.semanticscholar.org/graph/v1/paper/DOI:" + encodeURIComponent(doi);
+    if (source.includes("arxiv") && c?.url) return c.url;
+    if (source.includes("zenodo") && c?.url && /zenodo\.org/i.test(c.url)) return c.url;
+    if (source.includes("cvf") && c?.url) return c.url;
+    const direct = [c?.url, c?.link].map(v => String(v || "").trim()).find(v => /^https?:\/\//i.test(v) && !/^https?:\/\/(?:dx\.)?doi\.org\//i.test(v));
+    return direct || "";
+  }
+
+  function candidateApiMeta(c) {
+    const venue = c.journal || c.booktitle || "";
+    const doi = c.doi ? "DOI " + B.normalizeDoi(c.doi) : "";
+    return [c.year, venue, c._source, doi].filter(Boolean).join(" | ");
+  }
+
+  function buildCandidatesHTML(r, idx) {
+    if (!r.candidates || r.candidates.length === 0) return "";
+    const ct = B.stripLatex(r.title || "");
+    const openSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/><path d="M5 5h6"/><path d="M5 5v14h14v-6"/></svg>';
+    const renderItem = (c, ci) => {
+      const score = Math.round(B.titleSimilarity(ct, c.title || ""));
+      const scoreClass = score >= 85 ? "score-high" : score >= 70 ? "score-mid" : "score-low";
+      const isActive = ci === (r.selectedCandidateIdx || 0);
+      const meta = candidateApiMeta(c);
+      const selLabel = isActive ? '<span class="candidate-selected-label">' + t("selected") + '</span>' : "";
+      const url = candidateSourceUrl(c);
+      const link = url
+        ? '<a class="candidate-open-link" href="' + escAttr(url) + '" target="_blank" rel="noopener" title="Open source record" aria-label="Open source record">' + openSvg + '</a>'
+        : '<span class="candidate-open-link disabled" title="No source link" aria-label="No source link">' + openSvg + '</span>';
+      return '<div class="candidate-row">' +
+        '<button class="candidate-item' + (isActive ? " active" : "") + '" data-entry="' + idx + '" data-candidate="' + ci + '">' +
+          '<span class="candidate-rank">#' + (ci + 1) + '</span>' +
+          '<span class="candidate-body"><span class="candidate-title">' + esc(c.title || t("no_title")) + '</span><span class="candidate-meta">' + esc(meta) + '</span></span>' +
+          '<span class="candidate-score ' + scoreClass + '">' + score + '%</span>' + selLabel +
+        '</button>' + link +
+      '</div>';
+    };
+    const top3 = r.candidates.slice(0, 3), rest = r.candidates.slice(3);
+    let itemsHTML = top3.map((c, i) => renderItem(c, i)).join("");
+    let moreHTML = "";
+    if (rest.length) {
+      const moreItems = rest.map((c, i) => renderItem(c, i + 3)).join("");
+      moreHTML = '<button class="candidates-more-btn" data-entry="' + idx + '"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' + rest.length + ' ' + t("candidates_more") + '</button><div class="candidates-extra">' + moreItems + '</div>';
+    }
+    return '<div class="candidates-panel"><div class="candidates-header"><span class="candidates-title">' + t("candidates_title") + '</span><span class="candidates-count">' + r.candidates.length + '</span></div>' + itemsHTML + moreHTML + '</div>';
+  }
+
   function buildCardHTML(r) {
     const idx = r.index, entry = parsedEntries[idx];
     if (!fieldEdits[idx]) fieldEdits[idx] = {};
-    const needsEdit = isNeedsUpdateStatus(r.status);
+    const editableDetail = hasEditableDetail(r.status);
+    const candidateListHTML = editableDetail ? buildCandidatesHTML(r, idx) : "";
 
     let dupHTML = r.duplicate_of ? '<div class="duplicate-row">' + t("dup_of") + ' <strong>' + esc(r.duplicate_of) + '</strong></div>' : "";
     let revHTML = "", nfHTML = "", errHTML = "";
@@ -697,10 +765,13 @@
       : "";
 
     const collapseIcon = '<span class="entry-collapse-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>';
+    const goodMatchIcon = r.status === "verified"
+      ? '<span class="initial-match-icon" title="Good initial match" aria-label="Good initial match"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>'
+      : "";
     const positionHTML = '<span class="entry-list-position" data-entry-position="' + idx + '"></span>';
-    const headerHTML = '<div class="entry-header" role="button" tabindex="0" aria-expanded="false" data-entry-toggle="' + idx + '"><div class="entry-header-main">' + collapseIcon + positionHTML + '<div class="entry-header-text"><div class="entry-title">' + esc(r.title || t("no_title")) + '</div><div class="entry-meta">' + esc(r.entry_id) + ' &middot; ' + esc(r.entry_type) + '</div></div></div><div class="entry-header-aside">' + searchLinksHTML + '<div class="entry-tags">' + (r.duplicate_of ? '<span class="status-tag tag-duplicate">' + t("status_duplicate") + '</span>' : "") + '<span class="status-tag tag-' + escAttr(r.status) + '">' + statusLabel(r.status) + '</span></div></div></div>';
+    const headerHTML = '<div class="entry-header" role="button" tabindex="0" aria-expanded="false" data-entry-toggle="' + idx + '"><div class="entry-header-main">' + collapseIcon + positionHTML + '<div class="entry-header-text"><div class="entry-title">' + esc(r.title || t("no_title")) + '</div><div class="entry-meta">' + goodMatchIcon + '<span>' + esc(r.entry_id) + ' &middot; ' + esc(r.entry_type) + '</span></div></div></div><div class="entry-header-aside">' + searchLinksHTML + '<div class="entry-tags">' + (r.duplicate_of ? '<span class="status-tag tag-duplicate">' + t("status_duplicate") + '</span>' : "") + '<span class="status-tag tag-' + (editableDetail ? "review" : escAttr(r.status)) + '">' + statusLabel(r.status) + '</span></div></div></div>';
 
-    if (needsEdit) {
+    if (editableDetail) {
       // Candidates panel
       let candidatesHTML = "";
       if (r.candidates && r.candidates.length > 0) {
@@ -724,9 +795,9 @@
         candidatesHTML = '<div class="candidates-panel"><div class="candidates-header"><span class="candidates-title">' + t("candidates_title") + '</span><span class="candidates-count">' + r.candidates.length + '</span></div>' + itemsHTML + moreHTML + '</div>';
       }
       const detailSlot = '<div class="entry-detail-slot" id="detail-slot-' + idx + '"></div>';
-      return headerHTML + '<div class="entry-body">' + dupHTML + revHTML + candidatesHTML + detailSlot + '</div>';
+      return headerHTML + '<div class="entry-body">' + dupHTML + revHTML + candidateListHTML + detailSlot + '</div>';
     } else {
-      // Parsed / Verified / Not Found / Duplicate / Error: read-only original bib
+      // Parsed / Not Found / Duplicate / Error: read-only original bib
       const origBib = B.entriesToBib([entry]);
       const bibReadonly = '<pre class="bib-readonly">' + esc(origBib) + '</pre>';
       return headerHTML + '<div class="entry-body">' + dupHTML + errHTML + nfHTML + bibReadonly + '</div>';
@@ -747,7 +818,7 @@
     card.classList.toggle("unopened", !openedCards.has(idx));
     const header = card.querySelector(".entry-header");
     if (header) header.setAttribute("aria-expanded", expanded ? "true" : "false");
-    if (expanded && isNeedsUpdateStatus(r.status)) renderDetailInCard(idx);
+    if (expanded && hasEditableDetail(r.status)) renderDetailInCard(idx);
   }
 
   function shouldIgnoreHeaderToggle(target) {
@@ -1052,9 +1123,11 @@
     const idx = parseInt(btn.dataset.entry), ci = parseInt(btn.dataset.candidate);
     const r = results[idx];
     if (!r || !r.candidates || !r.candidates[ci]) return;
+    const displayStatus = r.status;
     r.selectedCandidateIdx = ci;
     fieldEdits[idx] = {};
     applyCandidate(r, parsedEntries[idx], r.candidates[ci]);
+    if (hasEditableDetail(displayStatus)) r.status = displayStatus;
     replaceCard(idx);
     updateSummary();
     rebuildToc();
@@ -1062,17 +1135,16 @@
 
   // ─── Summary ───────────────────────────────────────────────────────────
   function updateSummary() {
-    const c = { parsed: 0, verified: 0, needs_update: 0, not_found: 0, error: 0 };
+    const c = { parsed: 0, review: 0, not_found: 0, error: 0 };
     let dupes = 0;
     results.forEach(r => {
-      if (isNeedsUpdateStatus(r.status)) c.needs_update++;
+      if (hasEditableDetail(r.status)) c.review++;
       else c[r.status] = (c[r.status] || 0) + 1;
       if (r.duplicate_of) dupes++;
     });
     const b = (sel, txt) => { const el = $(sel); if (el) el.textContent = txt; };
     b(".badge-parsed",     t("badge_parsed")     + ": " + c.parsed);
-    b(".badge-verified",   t("badge_verified")   + ": " + c.verified);
-    b(".badge-updated",    t("badge_updated")    + ": " + c.needs_update);
+    b(".badge-review",     t("badge_review_all") + ": " + c.review);
     b(".badge-notfound",   t("badge_notfound")   + ": " + c.not_found);
     b(".badge-duplicates", t("badge_duplicates") + ": " + dupes);
     b(".badge-error",      t("badge_error")      + ": " + c.error);

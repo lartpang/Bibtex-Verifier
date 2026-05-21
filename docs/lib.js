@@ -843,8 +843,13 @@
     const isProceedings = type === "proceedings-article" || type === "proceedings" || type === "proceedings-series";
     const isBookLike = type.startsWith("book-") || type === "book" || type === "monograph" || type === "edited-book" || type === "reference-book";
 
+    const doi = item.DOI || "";
+    const title = (item.title || [""])[0] || "";
+    const sourceUrl = title
+      ? `https://search.crossref.org/search/works?q=${encodeURIComponent(title)}&from_ui=yes`
+      : (item.URL || "");
     return {
-      title: (item.title || [""])[0],
+      title,
       author: authors.join(" and "),
       year,
       journal: isJournal ? venue : "",
@@ -852,10 +857,11 @@
       volume: item.volume || "",
       number: item.issue || "",
       pages: item.page || "",
-      doi: item.DOI || "",
+      doi,
       publisher: item.publisher || "",
       url: item.URL || "",
       _source: "crossref",
+      _source_url: sourceUrl,
       _crossref_type: type,
     };
   }
@@ -880,6 +886,7 @@
     const meetingTitle = meeting.title || meeting.acronym || "";
     const doi = record.doi || metadata.doi || "";
 
+    const sourceUrl = record.links?.self_html || record.links?.self_doi_html || record.doi_url || (doi ? `https://doi.org/${doi}` : "");
     return {
       title: metadata.title || record.title || "",
       author: authors.join(" and "),
@@ -891,9 +898,10 @@
       pages: journal.pages || metadata.imprint?.pages || "",
       doi,
       publisher: metadata.publisher || "Zenodo",
-      url: record.links?.self_html || record.links?.self_doi_html || record.doi_url || (doi ? `https://doi.org/${doi}` : ""),
+      url: sourceUrl,
       howpublished: resourceType.title || resourceType.type || "",
       _source: "zenodo",
+      _source_url: sourceUrl,
       _zenodo_type: resourceType.type || "",
     };
   }
@@ -940,6 +948,7 @@
     const pv = paper.publicationVenue;
     const venue = (pv && typeof pv === "object" ? pv.name : null) || paper.venue || "";
 
+    const sourceUrl = paper.url || (paper.paperId ? `https://www.semanticscholar.org/paper/${paper.paperId}` : "");
     return {
       title: paper.title || "",
       author: authors.join(" and "),
@@ -950,6 +959,7 @@
       publisher: "",
       url: ext.DOI ? `https://doi.org/${ext.DOI}` : "",
       _source: "semantic_scholar",
+      _source_url: sourceUrl || (ext.DOI ? `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(ext.DOI)}` : ""),
     };
   }
 
@@ -988,6 +998,7 @@
     const year = paper.published ? String(paper.published).slice(0, 4) : "";
     const journal = paper.journalRef || (arxivId ? `arXiv preprint arXiv:${arxivId}` : "arXiv preprint");
 
+    const sourceUrl = arxivId ? `https://arxiv.org/abs/${arxivId}` : (paper.id || "");
     return {
       title: paper.title || "",
       author: authors.join(" and "),
@@ -998,8 +1009,9 @@
       pages: "",
       doi: paper.doi || (arxivId ? `10.48550/arXiv.${arxivId}` : ""),
       publisher: "",
-      url: arxivId ? `https://arxiv.org/abs/${arxivId}` : (paper.id || ""),
+      url: sourceUrl,
       _source: "arxiv",
+      _source_url: sourceUrl,
     };
   }
 
@@ -1077,6 +1089,7 @@
         publisher: "",
         url,
         _source: "cvf",
+        _source_url: url,
       });
     }
     return papers;
@@ -1084,6 +1097,7 @@
 
   function openreviewToStandard(note) {
     const content = note?.content || {};
+    const noteId = String(note?.forum || note?.id || "").trim();
     const title = String(content.title?.value || "").trim();
     const venue = String(content.venue?.value || "").trim();
     const bibtex = String(content._bibtex?.value || "").trim();
@@ -1129,10 +1143,22 @@
       publisher: "",
       url: doi ? `https://doi.org/${doi}` : url,
       _source: "openreview",
+      _source_url: noteId ? `https://openreview.net/forum?id=${encodeURIComponent(noteId)}` : url,
     };
   }
 
   function dblpToStandard(info) {
+    function dblpValue(value) {
+      if (Array.isArray(value)) {
+        const first = value.map(dblpValue).find(Boolean);
+        return first || "";
+      }
+      if (value && typeof value === "object") {
+        return String(value.text || value["@href"] || value["@id"] || value.href || value.url || "").trim();
+      }
+      return String(value || "").trim();
+    }
+
     function cleanDblpAuthorName(name) {
       return String(name || "").trim().replace(/\s+\d{4}$/, "").trim();
     }
@@ -1140,25 +1166,27 @@
     const authorArr = info?.authors?.author || [];
     const authors = (Array.isArray(authorArr) ? authorArr : [authorArr])
       .map(a => {
-        const name = cleanDblpAuthorName(a.text);
+        const name = cleanDblpAuthorName(dblpValue(a));
+        if (name.includes(",")) return name;
         const parts = name.split(/\s+/).filter(Boolean);
         if (parts.length >= 2) return `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(" ")}`;
         return name;
       }).filter(Boolean);
 
-    const title = String(info?.title || "").replace(/\.\s*$/, "").trim();
-    const venue = String(info?.venue || "").trim();
-    const year = String(info?.year || "").trim();
-    const type = String(info?.type || "").toLowerCase();
-    const pages = String(info?.pages || "").trim();
-    const volume = String(info?.volume || "").trim();
-    const doi = String(info?.doi || "").trim();
-    const ee = String(info?.ee || "").trim();
-    const url = String(info?.url || "").trim();
+    const title = dblpValue(info?.title).replace(/\.\s*$/, "").trim();
+    const venue = dblpValue(info?.venue);
+    const year = dblpValue(info?.year);
+    const type = dblpValue(info?.type).toLowerCase();
+    const pages = dblpValue(info?.pages);
+    const volume = dblpValue(info?.volume);
+    const doi = dblpValue(info?.doi);
+    const ee = dblpValue(info?.ee);
+    const url = dblpValue(info?.url);
 
     const isJournal = type.includes("journal") || type.includes("article");
     const isConference = type.includes("conference") || type.includes("workshop") || type.includes("proceedings");
 
+    const sourceUrl = url || ee || "";
     const result = {
       title,
       author: authors.join(" and "),
@@ -1172,6 +1200,7 @@
       publisher: "",
       url: doi ? `https://doi.org/${doi}` : (ee || url),
       _source: "dblp",
+      _source_url: sourceUrl,
     };
 
     return result;
@@ -1195,6 +1224,7 @@
     const title = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim() : "";
     const year = submittedMatch ? submittedMatch[1].slice(-4) : "";
 
+    const sourceUrl = normalizedId ? `https://arxiv.org/abs/${normalizedId}` : "";
     return {
       title,
       author: authors.map(name => {
@@ -1209,8 +1239,9 @@
       pages: "",
       doi: normalizedId ? `10.48550/arXiv.${normalizedId}` : "",
       publisher: "",
-      url: normalizedId ? `https://arxiv.org/abs/${normalizedId}` : "",
+      url: sourceUrl,
       _source: "arxiv",
+      _source_url: sourceUrl,
     };
   }
 

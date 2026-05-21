@@ -416,6 +416,7 @@ test("converts CrossRef response to standard format", () => {
   assert.strictEqual(result.doi, "10.5555/3295222.3295349");
   assert.strictEqual(result._crossref_type, "proceedings-article");
   assert.strictEqual(result._source, "crossref");
+  assert.strictEqual(result._source_url, "https://search.crossref.org/search/works?q=Attention%20Is%20All%20You%20Need&from_ui=yes");
 });
 
 test("maps CrossRef journal articles to journal", () => {
@@ -487,6 +488,7 @@ test("converts Zenodo record to standard format", () => {
   assert.strictEqual(result.url, "https://zenodo.org/records/12531857");
   assert.strictEqual(result._zenodo_type, "presentation");
   assert.strictEqual(result._source, "zenodo");
+  assert.strictEqual(result._source_url, "https://zenodo.org/records/12531857");
 });
 
 test("maps Zenodo journal and meeting metadata", () => {
@@ -550,6 +552,8 @@ test("converts Semantic Scholar response to standard format", () => {
     authors: [{ name: "Jacob Devlin" }, { name: "Ming-Wei Chang" }],
     year: 2019,
     venue: "NAACL",
+    paperId: "abc123",
+    url: "https://www.semanticscholar.org/paper/abc123",
     externalIds: { DOI: "10.18653/v1/N19-1423" },
   };
   const result = lib.ssToStandard(paper);
@@ -558,6 +562,7 @@ test("converts Semantic Scholar response to standard format", () => {
   assert.strictEqual(result.year, "2019");
   assert.strictEqual(result.journal, "NAACL");
   assert.strictEqual(result._source, "semantic_scholar");
+  assert.strictEqual(result._source_url, "https://www.semanticscholar.org/paper/abc123");
 });
 
 test("prefers publicationVenue.name over venue string", () => {
@@ -593,6 +598,30 @@ test("extracts generic DOI from DOI field and URL", () => {
     lib.doiFromEntry({ url: "https://doi.org/10.48550/arXiv.2508.10104" }),
     "10.48550/arxiv.2508.10104"
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+console.log("\n── dblpToStandard ──");
+
+test("converts DBLP response with mixed field shapes", () => {
+  const result = lib.dblpToStandard({
+    title: "Example DBLP Paper.",
+    authors: { author: [{ text: "Doe, Jane" }, "John Smith", null] },
+    venue: ["ICML"],
+    year: 2024,
+    type: "Conference and Workshop Papers",
+    pages: { text: "1-12" },
+    doi: "10.1145/123",
+    ee: [{ text: "https://doi.org/10.1145/123" }],
+    url: "https://dblp.org/rec/conf/icml/example",
+  });
+
+  assert.strictEqual(result.title, "Example DBLP Paper");
+  assert.strictEqual(result.author, "Doe, Jane and Smith, John");
+  assert.strictEqual(result.year, "2024");
+  assert.strictEqual(result.booktitle, "ICML");
+  assert.strictEqual(result.pages, "1-12");
+  assert.strictEqual(result._source_url, "https://dblp.org/rec/conf/icml/example");
 });
 
 // ═══════════════════════════════════════════════════════════════════════
