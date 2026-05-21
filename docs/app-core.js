@@ -73,7 +73,7 @@
   async function searchArxiv(t){
     const xml=await rF(bU(ARXIV_API,{search_query:`ti:"${t}"`,start:"0",max_results:"5",sortBy:"relevance",sortOrder:"descending"}),{txt:true});
     return parseArxivXml(xml);}
-  async function searchOR(t){try{const d=await rF(bU(`${OR_API}/notes`,{"content.title":t,limit:"5",details:"replies"}));return(d?.notes||[]).map(n=>B.openreviewToStandard(n)).filter(p=>p.title);}catch{return[];}}
+  async function searchOR(t){try{const d=await rF(bU(`${OR_API}/notes/search`,{term:t,limit:"5"}));return(d?.notes||[]).map(n=>B.openreviewToStandard(n)).filter(p=>p.title);}catch{return[];}}
   async function searchCVF(e){const ci=B.cvfConfFromEntry(e);if(!ci)return[];try{const h=await rF(ci.url,{txt:true});return h?B.cvfPageToCandidates(h,ci):[];}catch{return[];}}
 
   function hasStrongPublished(candidates,ct){

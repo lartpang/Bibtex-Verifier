@@ -625,6 +625,29 @@ test("converts DBLP response with mixed field shapes", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+console.log("\n── openreviewToStandard ──");
+
+test("converts OpenReview search note without bibtex", () => {
+  const result = lib.openreviewToStandard({
+    id: "abc123",
+    forum: "forum123",
+    content: {
+      title: { value: "OpenReview Paper" },
+      authors: { value: ["Jane Doe", "John Smith"] },
+      venue: { value: "ICLR 2025" },
+      html: { value: "https://openreview.net/forum?id=forum123" },
+    },
+  });
+
+  assert.strictEqual(result.title, "OpenReview Paper");
+  assert.strictEqual(result.author, "Jane Doe and John Smith");
+  assert.strictEqual(result.year, "2025");
+  assert.strictEqual(result.booktitle, "ICLR 2025");
+  assert.strictEqual(result._source, "openreview");
+  assert.strictEqual(result._source_url, "https://openreview.net/forum?id=forum123");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 console.log("\n── extractLastNames ──");
 
 test("extracts from 'Last, First and Last, First' format", () => {

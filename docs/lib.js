@@ -1098,16 +1098,24 @@
   function openreviewToStandard(note) {
     const content = note?.content || {};
     const noteId = String(note?.forum || note?.id || "").trim();
-    const title = String(content.title?.value || "").trim();
-    const venue = String(content.venue?.value || "").trim();
-    const bibtex = String(content._bibtex?.value || "").trim();
+    const val = key => {
+      const item = content[key];
+      if (item && typeof item === "object" && Object.prototype.hasOwnProperty.call(item, "value")) return item.value;
+      return item || "";
+    };
+    const title = String(val("title") || "").trim();
+    const venue = String(val("venue") || "").trim();
+    const bibtex = String(val("_bibtex") || "").trim();
 
-    let authors = "";
+    const authorList = val("authors");
+    let authors = Array.isArray(authorList)
+      ? authorList.map(a => String(a || "").trim()).filter(Boolean).join(" and ")
+      : String(authorList || "").trim();
     let year = "";
     let booktitle = "";
     let journal = "";
     let doi = "";
-    let url = "";
+    let url = String(val("html") || val("pdf") || "").trim();
 
     if (bibtex) {
       const authorMatch = /author\s*=\s*\{([^}]+)\}/i.exec(bibtex);
@@ -1124,6 +1132,7 @@
       if (urlMatch) url = urlMatch[1];
     }
 
+    if (!url && noteId) url = `https://openreview.net/forum?id=${noteId}`;
     if (!year && venue) {
       const yearFromVenue = /\b(20\d{2})\b/.exec(venue);
       if (yearFromVenue) year = yearFromVenue[1];
