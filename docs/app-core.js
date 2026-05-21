@@ -17,7 +17,7 @@
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   function gS(u){if(u.includes("semanticscholar.org"))return"ss";if(u.includes("crossref.org"))return"cr";if(u.includes("dblp.org"))return"dblp";if(u.includes("arxiv.org"))return"arxiv";if(u.includes("openreview.net"))return"or";if(u.includes("thecvf.com")||u.includes("ecva.net"))return"cvf";if(u.includes("zenodo.org"))return"zenodo";return"cr";}
 
-  let _authErrCb=null;
+  let _authErrCb=null,_logCb=null;
 
   async function rF(url,{retries=MAX_RETRIES,is404=false,txt=false,headers={}}={}){
     const s=gS(url),k=rK[s],el=Date.now()-rS[k.l];if(el<rS[k.d])await sleep(rS[k.d]-el);rS[k.l]=Date.now();
@@ -26,11 +26,12 @@
       try{
         const r=await fetch(url,{signal:ctrl.signal,headers});clearTimeout(tid);
         if(r.ok){rSucc(s);return txt?r.text():r.json();}
-        if(r.status===404&&is404)return null;
+        if(r.status===404&&is404){_logCb?.("info",`HTTP 404 from ${s}; treated as no result`);return null;}
         if((r.status===401||r.status===403)&&s==="ss"){_authErrCb?.(s,r.status);return null;}
-        if(r.status===429){rBack(s);if(a<retries){await sleep(RETRY_MS*Math.pow(2,a));continue;}}
+        if(r.status===429){rBack(s);if(a<retries){_logCb?.("retry",`Retry ${s} after HTTP 429 (${a+1}/${retries})`);await sleep(RETRY_MS*Math.pow(2,a));continue;}}
+        _logCb?.("warning",`HTTP ${r.status} from ${s}; source returned no usable result`);
         return null;
-      }catch(e){clearTimeout(tid);rBack(s);if(a<retries){await sleep(RETRY_MS*Math.pow(2,a));continue;}return null;}
+      }catch(e){clearTimeout(tid);rBack(s);if(a<retries){_logCb?.("retry",`Retry ${s} after ${e?.name||"request error"} (${a+1}/${retries})`);await sleep(RETRY_MS*Math.pow(2,a));continue;}_logCb?.("warning",`Request failed for ${s}: ${e?.name||"error"}`);return null;}
     }return null;}
 
   function bU(b,p){const u=new URL(b);for(const[k,v]of Object.entries(p))u.searchParams.set(k,v);return u.toString();}
@@ -66,15 +67,18 @@
     return candidates.some(c=>!B.isArxivCandidate(c)&&B.classifyVersion(c)!=="preprint"&&B.titleSimilarity(ct,c.title||"")>=B.TITLE_MATCH_THRESHOLD);}
 
   async function lookupTiered(title,entry,logFn,getEngines,getApiKey){
+    _logCb=logFn;
     const enabled=new Set(getEngines()),ct=B.stripLatex(title);
     const ssKey=getApiKey?getApiKey("semantic_scholar"):"";
     const ssH=ssKey?{"x-api-key":ssKey}:{};
     const allCandidates=[],seen=new Set();
-    function addCandidates(list){for(const c of list){const k=(B.normalizeTitle(c.title||""))+"||"+(c._source||"");if(!seen.has(k)){seen.add(k);allCandidates.push(c);}}}
-    function finalize(){const ranked=rankCandidates(entry,ct,allCandidates).slice(0,8);if(!ranked.length){logFn("warning",`Not found: ${ct.slice(0,50)}`);return{best:null,candidates:[]};}return{best:ranked[0],candidates:ranked};}
+    function addCandidates(list){let added=0;for(const c of list){const k=(B.normalizeTitle(c.title||""))+"||"+(c._source||"");if(!seen.has(k)){seen.add(k);allCandidates.push(c);added++;}}return added;}
+    function logDisabled(id,label){if(!enabled.has(id))logFn("skip",`Skipped ${label}: disabled`);}
+    function finalize(){const ranked=rankCandidates(entry,ct,allCandidates).slice(0,8);if(!ranked.length){logFn("warning",`Not found: ${ct.slice(0,50)}`);return{best:null,candidates:[]};}ranked.slice(0,3).forEach((c,i)=>logFn("candidate",`Candidate #${i+1} ${c._source||"unknown"} ${Math.round(B.titleSimilarity(ct,c.title||""))}%: ${(c.title||"").slice(0,70)}`));logFn("decision",`Selected ${ranked[0]._source||"unknown"}: ${(ranked[0].title||"").slice(0,70)}`);return{best:ranked[0],candidates:ranked};}
 
     // ── Tier 1: DBLP + CrossRef + SS in parallel ──────────────────
     const t1Tasks=[];
+    logDisabled("dblp","T1 DBLP");logDisabled("crossref","T1 CrossRef");logDisabled("semantic_scholar","T1 S2");
     if(enabled.has("dblp"))t1Tasks.push(searchDBLP(ct).then(r=>{logFn("query",`T1 DBLP: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
     if(enabled.has("crossref"))t1Tasks.push(searchCrossref(ct).then(r=>{logFn("query",`T1 CrossRef: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
     if(enabled.has("semantic_scholar"))t1Tasks.push((async()=>{
@@ -86,7 +90,8 @@
 
     const t1Results=await Promise.all(t1Tasks);
     const t1=t1Results.flat();
-    addCandidates(t1);
+    logFn("info",`T1 returned ${t1.length} raw candidates`);
+    logFn("info",`T1 added ${addCandidates(t1)} unique candidates`);
 
     if(hasStrongPublished(allCandidates,ct)){
       logFn("success",`Published T1: ${(rankCandidates(entry,ct,allCandidates)[0]?.title||"").slice(0,50)}`);
@@ -97,11 +102,13 @@
 
     // ── Tier 2: CVF + OpenReview in parallel ─────────────────────────
     const t2Tasks=[];
+    logDisabled("cvf","T2 CVF");logDisabled("openreview","T2 OpenReview");
     if(enabled.has("cvf"))t2Tasks.push(searchCVF(entry).then(r=>{logFn("query",`T2 CVF: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
     if(enabled.has("openreview"))t2Tasks.push(searchOR(ct).then(r=>{logFn("query",`T2 OR: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
     if(t2Tasks.length){
       const t2=((await Promise.all(t2Tasks)).flat());
-      addCandidates(t2);
+      logFn("info",`T2 returned ${t2.length} raw candidates`);
+      logFn("info",`T2 added ${addCandidates(t2)} unique candidates`);
       if(hasStrongPublished(allCandidates,ct)){
         logFn("success",`Published T2: ${(rankCandidates(entry,ct,allCandidates)[0]?.title||"").slice(0,50)}`);
         return finalize();}
@@ -114,10 +121,15 @@
       if(doi&&!B.isArxivDoi(doi)){
         if(enabled.has("crossref"))idTasks.push(searchCrossrefDoi(doi).then(r=>{logFn("query",`ID CrossRef DOI: ${doi}`);return r;}).catch(()=>[]));
         if(enabled.has("semantic_scholar"))idTasks.push(searchSSByDoi(doi,ssH).then(r=>{logFn("query",`ID S2 DOI: ${doi}`);return r;}).catch(()=>[]));
+      } else if(doi&&B.isArxivDoi(doi)){
+        logFn("skip",`Skipped published DOI lookup for arXiv DOI: ${doi}`);
+      } else {
+        logFn("skip","Skipped DOI lookup: no DOI in entry");
       }
       if(idTasks.length){
         const idResults=(await Promise.all(idTasks)).flat();
-        addCandidates(idResults);
+        logFn("info",`Identifier lookup returned ${idResults.length} raw candidates`);
+        logFn("info",`Identifier lookup added ${addCandidates(idResults)} unique candidates`);
         if(hasStrongPublished(allCandidates,ct)){
           logFn("success",`Published ID: ${(rankCandidates(entry,ct,allCandidates)[0]?.title||"").slice(0,50)}`);
           return finalize();}
@@ -128,14 +140,17 @@
     if(!hasStrongPublished(allCandidates,ct)){
       const t3Tasks=[];
       if(enabled.has("zenodo")&&B.hasZenodoSignal&&B.hasZenodoSignal(entry))t3Tasks.push(searchZenodo(ct,entry).then(r=>{logFn("query",`T3 Zenodo: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
+      else if(enabled.has("zenodo"))logFn("skip","Skipped T3 Zenodo: no Zenodo signal in entry");
+      else logFn("skip","Skipped T3 Zenodo: disabled");
       if(enabled.has("arxiv")){
         const arxivId=B.arxivIdFromEntry?B.arxivIdFromEntry(entry):"";
         if(arxivId)t3Tasks.push(searchArxivById(arxivId).then(r=>{logFn("query",`T3 arXiv ID: ${arxivId}`);return r;}).catch(()=>[]));
         else t3Tasks.push(searchArxiv(ct).then(r=>{logFn("query",`T3 arXiv title: ${ct.slice(0,55)}`);return r;}).catch(()=>[]));
-      }
+      }else logFn("skip","Skipped T3 arXiv: disabled");
       if(t3Tasks.length){
         const t3=(await Promise.all(t3Tasks)).flat();
-        addCandidates(t3);
+        logFn("info",`T3 returned ${t3.length} raw candidates`);
+        logFn("info",`T3 added ${addCandidates(t3)} unique candidates`);
         const ab=B.bestMatch(t3,ct);if(ab)logFn("success",`T3: ${(ab.title||"").slice(0,50)}`);}
     }
 

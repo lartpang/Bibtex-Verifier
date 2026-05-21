@@ -33,7 +33,7 @@ What happens:
 
 ### 2. Configure Sources
 
-Use the gear button in the floating toolbar to choose search sources and optionally add a Semantic Scholar API key.
+Use the gear button in the floating toolbar to choose search sources, configure ignored fields, and optionally add a Semantic Scholar API key.
 
 Search order:
 
@@ -45,6 +45,10 @@ Search order:
 
 Published conference and journal records are preferred over preprints when the title evidence is comparable.
 
+Field restrictions:
+
+List fields to ignore before consistency checking, such as `note`, `url`, or `urldate`. Ignored fields are excluded whether they appear in your BibTeX entry, the selected candidate, or both. If the list is empty, BibSentry checks every field already present in your BibTeX entry; extra fields found online are treated as optional enrichments and do not force review.
+
 ### 3. Start Verification
 
 Click `Start verification` in the floating toolbar.
@@ -54,20 +58,20 @@ During verification:
 - `Parsed` decreases as entries are processed.
 - `Pause` waits for the current request to finish before stopping.
 - `Continue` resumes the queue.
-- `Log` shows requests, retries, skipped sources, candidates, and result decisions.
+- `Log` shows enabled and skipped sources, request failures and retries, candidate counts, top selected candidates, and final result decisions.
 
 ### 4. Review Statuses
 
 Use the status badges to filter the result list.
 
-| Status       | Meaning                                                                                                                                               |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Parsed       | Parsed successfully, waiting for verification.                                                                                                        |
-| Verified     | The selected candidate matches closely.                                                                                                               |
-| Needs Update | The entry should be checked before export. This includes metadata enrichments, normalized values, and uncertain candidates that need manual judgment. |
-| Not Found    | No enabled source produced a credible match.                                                                                                          |
-| Duplicates   | Another entry has the same normalized title.                                                                                                          |
-| Error        | Parsing produced a blocking diagnostic.                                                                                                               |
+| Status       | Meaning                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Parsed       | Parsed successfully, waiting for verification.                                                                                                               |
+| Verified     | The selected candidate matches closely after ignored fields are excluded. Extra candidate-only fields may be available but are not applied automatically.    |
+| Needs Update | The entry should be checked before export. This includes unmatched considered fields, normalized values, and uncertain candidates that need manual judgment. |
+| Not Found    | No enabled source produced a credible match.                                                                                                                 |
+| Duplicates   | Another entry has the same normalized title.                                                                                                                 |
+| Error        | Parsing produced a blocking diagnostic.                                                                                                                      |
 
 `Needs Update` entries are appended to the bottom of the result list in verification order, so you can inspect them from top to bottom in the same order they were found. After verification, editing, candidate changes, filtering, and language switching preserve that order.
 
@@ -86,14 +90,14 @@ Supported actions:
 
 `Needs Update` cards use a four-view editor.
 
-| View     | Action                                                     |
-| -------- | ---------------------------------------------------------- |
-| Original | Click a field value to restore your original value.        |
-| Found    | Click a field value to adopt the selected candidate value. |
-| Edit     | Type directly to customize the exported value.             |
-| Diff     | Inspect the before/after BibTeX diff.                      |
+| View     | Action                                                                          |
+| -------- | ------------------------------------------------------------------------------- |
+| Original | Click a field value to restore your original value.                             |
+| Found    | Click a field value to adopt the selected candidate value.                      |
+| Edit     | Starts from your original value; type directly to customize the exported value. |
+| Diff     | Inspect the before/after BibTeX diff.                                           |
 
-The header refresh icon adopts all found values for that entry. The clear button empties a field; empty fields are omitted from export.
+The header refresh icon applies the selected candidate directly to that entry, including blank candidate fields. The clear button empties a field; empty fields are omitted from export.
 
 Cards are collapsed by default to keep long files scannable. `Needs Update` cards use a dark red left border until opened once; after you expand a card, the left border turns green and stays green even if you collapse it again.
 
@@ -103,7 +107,7 @@ The right-side table of contents follows the active filter. Click an item to jum
 
 ### 8. Export
 
-Click `Download Corrected .bib` at any time.
+After parsing succeeds, click `Download Corrected .bib` at any time, before, during, or after online verification.
 
 Export behavior:
 

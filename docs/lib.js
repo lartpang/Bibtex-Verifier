@@ -704,20 +704,46 @@
     return version === "journal" || version === "conference";
   }
 
-  function compareEntry(original, found) {
+  function publicFieldNames(entry) {
+    return Object.keys(entry || {}).filter(k => k !== "ENTRYTYPE" && k !== "ID" && !k.startsWith("_"));
+  }
+
+  function makeIgnoredFieldSet(options = {}) {
+    return new Set((options.ignoredFields || []).map(normalizeFieldName).filter(Boolean));
+  }
+
+  function comparisonFieldNames(original, found, options = {}) {
+    const ignored = makeIgnoredFieldSet(options);
+    const names = [];
+    const add = field => {
+      field = normalizeFieldName(field);
+      if (!field || ignored.has(field) || names.includes(field)) return;
+      names.push(field);
+    };
+    add("title");
+    publicFieldNames(original).forEach(add);
+    COMPARED_FIELDS.forEach(add);
+    publicFieldNames(found).forEach(field => {
+      if (!original[field]) add(field);
+    });
+    return names;
+  }
+
+  function compareEntry(original, found, options = {}) {
     found = adaptCandidateToEntryFields(original, found || {});
     const origTitle = original.title || "";
     const foundTitle = found.title || "";
     const titleScore = tokenSortRatio(normalizeTitle(origTitle), normalizeTitle(foundTitle));
+    const ignoredFields = makeIgnoredFieldSet(options);
 
-    if (titleScore < TITLE_MATCH_THRESHOLD) {
+    if (!ignoredFields.has("title") && titleScore < TITLE_MATCH_THRESHOLD) {
       return { status: "needs_review", title_score: titleScore, field_diffs: [], suggested: found };
     }
 
     const fieldDiffs = [], enrichments = [];
     let hasDifference = false;
 
-    for (const field of COMPARED_FIELDS) {
+    for (const field of comparisonFieldNames(original, found, options)) {
       const origVal = original[field] || "";
       const foundVal = found[field] || "";
       if (!origVal && !foundVal) continue;
@@ -726,7 +752,11 @@
         enrichments.push({ field, original: origVal, found: foundVal, score: 0 });
         continue;
       }
-      if (origVal.trim() && !foundVal.trim()) continue;
+      if (origVal.trim() && !foundVal.trim()) {
+        hasDifference = true;
+        fieldDiffs.push({ field, original: origVal, found: foundVal, score: 0 });
+        continue;
+      }
 
       const score = compareField(field, origVal, foundVal);
       if (score < 100) {
@@ -749,9 +779,10 @@
    * Build a full diff against the closest `found` record so the UI can show suggestions
    * and per-field accept / revert actions.
    */
-  function fieldDiffsForNeedsReview(original, found) {
+  function fieldDiffsForNeedsReview(original, found, options = {}) {
     if (!found) return [];
     const merged = adaptCandidateToEntryFields(original, found);
+    const ignoredFields = makeIgnoredFieldSet(options);
 
     const origTitle = original.title || "";
     const foundTitle = merged.title || "";
@@ -759,7 +790,7 @@
     const fieldDiffs = [];
     const enrichments = [];
 
-    if (origTitle.trim() || foundTitle.trim()) {
+    if (!ignoredFields.has("title") && (origTitle.trim() || foundTitle.trim())) {
       fieldDiffs.push({
         field: "title",
         original: origTitle,
@@ -768,7 +799,7 @@
       });
     }
 
-    for (const field of COMPARED_FIELDS) {
+    for (const field of comparisonFieldNames(original, merged, options)) {
       const origVal = original[field] || "";
       const foundVal = merged[field] || "";
       if (!origVal && !foundVal) continue;
@@ -777,7 +808,10 @@
         enrichments.push({ field, original: origVal, found: foundVal, score: 0 });
         continue;
       }
-      if (origVal.trim() && !foundVal.trim()) continue;
+      if (origVal.trim() && !foundVal.trim()) {
+        fieldDiffs.push({ field, original: origVal, found: foundVal, score: 0 });
+        continue;
+      }
 
       const score = compareField(field, origVal, foundVal);
       if (score < 100) {

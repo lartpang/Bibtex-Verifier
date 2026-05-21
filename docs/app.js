@@ -49,6 +49,10 @@
       api_key_auth_error: "API key rejected — clear the field if you don't have one.",
       api_key_auth_error_401: "API key invalid (401 Unauthorized). Please check or clear the key.",
       api_key_auth_error_403: "API key forbidden (403 Forbidden). Please check or clear the key.",
+      review_mode_title: "Field Restrictions",
+      review_mode_help: "List fields to ignore before checking consistency. Leave empty to check every field present in your BibTeX entry.",
+      ignored_fields_label: "Ignored fields",
+      ignored_fields_placeholder: "note, url, urldate",
     },
     zh: {
       upload_tab: "上传文件", paste_tab: "粘贴 BibTeX",
@@ -94,6 +98,10 @@
       api_key_auth_error: "API Key 验证失败——如果没有 Key 请清空该输入框。",
       api_key_auth_error_401: "API Key 无效（401 Unauthorized），请检查或清空 Key。",
       api_key_auth_error_403: "API Key 被拒绝（403 Forbidden），请检查或清空 Key。",
+      review_mode_title: "字段限制",
+      review_mode_help: "先忽略你列出的字段，再检查一致性。留空则检查用户 BibTeX 中已存在的所有字段。",
+      ignored_fields_label: "忽略字段",
+      ignored_fields_placeholder: "note, url, urldate",
     }
   };
   let lang = localStorage.getItem("bv-lang") || "en";
@@ -147,7 +155,12 @@
     if (apiKeysTitle) apiKeysTitle.textContent = t("api_keys_title");
     const apiKeysHelp = document.getElementById("api-keys-help");
     if (apiKeysHelp) apiKeysHelp.textContent = t("api_keys_help");
+    const reviewModeTitle = document.getElementById("review-mode-title");
+    if (reviewModeTitle) reviewModeTitle.textContent = t("review_mode_title");
+    const reviewModeHelp = document.getElementById("review-mode-help");
+    if (reviewModeHelp) reviewModeHelp.textContent = t("review_mode_help");
     renderSearchEngineOptions();
+    renderReviewOptions();
     renderApiKeyOptions();
     const tocTitleEl = document.getElementById("toc-title");
     if (tocTitleEl) tocTitleEl.textContent = t("toc_title");
@@ -313,6 +326,36 @@
   function getSelectedSearchEngines() { return [...document.querySelectorAll(".opt-search-engine[data-engine]:checked")].map(el => el.dataset.engine); }
   renderSearchEngineOptions();
 
+  // Review mode options
+  function parseIgnoredFields(value) {
+    return String(value || "")
+      .split(/[,\s]+/)
+      .map(v => v.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  function renderReviewOptions() {
+    const container = document.getElementById("review-mode-options");
+    if (!container) return;
+    const ignored = localStorage.getItem("bv-ignored-fields") || "";
+    container.innerHTML =
+      '<label class="ignored-fields-row"><span>' + esc(t("ignored_fields_label")) + '</span>' +
+        '<input class="ignored-fields-input" type="text" value="' + escAttr(ignored) + '" placeholder="' + escAttr(t("ignored_fields_placeholder")) + '" />' +
+      '</label>';
+    const ignoredInput = container.querySelector(".ignored-fields-input");
+    if (ignoredInput) {
+      ignoredInput.addEventListener("input", () => localStorage.setItem("bv-ignored-fields", ignoredInput.value));
+    }
+  }
+
+  function getComparisonOptions() {
+    return {
+      ignoredFields: parseIgnoredFields(localStorage.getItem("bv-ignored-fields") || ""),
+    };
+  }
+
+  renderReviewOptions();
+
   // ─── API Key options ───────────────────────────────────────────────────
   const API_KEY_SOURCES = [
     { id: "semantic_scholar", label: "Semantic Scholar", storageKey: "bv-apikey-ss",
@@ -462,7 +505,7 @@
     cardOrder.forEach(idx => renderEntryCard(results[idx]));
     updateSummary(); rebuildToc();
     btnStartVerify.classList.remove("hidden"); btnStartVerify.textContent = t("start_verification");
-    btnDownload.classList.add("hidden");
+    checkExportAllowed();
     barProgressText.textContent = parsedEntries.length + " " + t("entries_parsed");
   }
 
@@ -492,16 +535,19 @@
       const pct = Math.round(((i + 1) / total) * 100);
       barProgressFill.style.width = pct + "%";
       barProgressText.textContent = t("verifying") + " " + (i+1) + " / " + total + ": " + title.slice(0, 50);
-      if (!title.trim()) { r.status = "not_found"; replaceCard(i); updateSummary(); continue; }
+      if (!title.trim()) { addLog("warning", "Skipped entry without title: " + r.entry_id); r.status = "not_found"; replaceCard(i); updateSummary(); continue; }
       let lookupResult = { best: null, candidates: [] };
       try { lookupResult = await BV.lookupTiered(title, entry, addLog, getSelectedSearchEngines, getApiKey); } catch (err) { console.warn("Lookup failed:", err); }
       const { best: found, candidates } = lookupResult;
       r.candidates = candidates || [];
       r.selectedCandidateIdx = 0;
+      addLog("info", "Candidates for " + r.entry_id + ": " + r.candidates.length);
       if (!found) {
         r.status = "not_found"; r.found = null;
+        addLog("decision", "Decision " + r.entry_id + ": Not Found");
       } else {
         applyCandidate(r, entry, found);
+        addLog("decision", "Decision " + r.entry_id + ": " + statusLabel(r.status) + " (" + (found._source || "unknown") + ")");
       }
       replaceCard(i, { appendToEnd: isNeedsUpdateStatus(r.status) }); updateSummary(); rebuildToc();
     }
@@ -513,9 +559,10 @@
   }
 
   function applyCandidate(r, entry, found) {
-    const cmp = B.compareEntry(entry, found);
+    const comparisonOptions = getComparisonOptions();
+    const cmp = B.compareEntry(entry, found, comparisonOptions);
     let fd = cmp.field_diffs;
-    if (cmp.status === "needs_review" && found) fd = B.fieldDiffsForNeedsReview(entry, found);
+    if (cmp.status === "needs_review" && found) fd = B.fieldDiffsForNeedsReview(entry, found, comparisonOptions);
     r.update_kind = isNeedsUpdateStatus(cmp.status) ? cmp.status : "";
     r.status = isNeedsUpdateStatus(cmp.status) ? "needs_update" : cmp.status;
     r.title_score = cmp.title_score; r.field_diffs = fd;
@@ -765,19 +812,18 @@
     const ALL_FIELDS = ["title"].concat(B.COMPARED_FIELDS);
     const diffFieldSet = new Set((r.field_diffs || []).map(d => d.field));
     const foundEntry = r.found || {};
-    const extraFields = Object.keys(foundEntry).filter(f =>
-      !ALL_FIELDS.includes(f) && !["ID","ENTRYTYPE"].includes(f) && !f.startsWith("_") && (foundEntry[f] || "").toString().trim()
+    const extraFields = Object.keys({ ...entry, ...foundEntry }).filter(f =>
+      !ALL_FIELDS.includes(f) && !["ID","ENTRYTYPE"].includes(f) && !f.startsWith("_") && (((entry[f] || "").toString().trim()) || ((foundEntry[f] || "").toString().trim()))
     );
     const fields = ALL_FIELDS.concat(extraFields.filter(f => !ALL_FIELDS.includes(f)));
 
-    // Initialise fieldEdits for every field we show
-    const defaultAction = r.update_kind === "updated" ? "found" : "original";
+    // Initialise edits from the original entry; adopting found values is explicit.
     for (const f of fields) {
       if (!fieldEdits[idx][f]) {
         const foundVal = (foundEntry[f] || "").toString();
         const origVal  = (entry[f]   || "").toString();
         const sameContent = B.fieldValuesEquivalent(f, origVal, foundVal);
-        const action = sameContent ? "original" : defaultAction;
+        const action = "original";
         if (diffFieldSet.has(f)) {
           const d = r.field_diffs.find(x => x.field === f);
           fieldEdits[idx][f] = { action, value: action === "original" ? origVal : (foundVal || origVal) };
@@ -855,8 +901,8 @@
     if (!r || !entry) return;
     const ALL_FIELDS = ["title"].concat(B.COMPARED_FIELDS);
     const foundEntry = r.found || {};
-    const extraFields = Object.keys(foundEntry).filter(f =>
-      !ALL_FIELDS.includes(f) && !["ID","ENTRYTYPE"].includes(f) && !f.startsWith("_") && (foundEntry[f] || "").toString().trim()
+    const extraFields = Object.keys({ ...entry, ...foundEntry }).filter(f =>
+      !ALL_FIELDS.includes(f) && !["ID","ENTRYTYPE"].includes(f) && !f.startsWith("_") && (((entry[f] || "").toString().trim()) || ((foundEntry[f] || "").toString().trim()))
     );
     const fields = ALL_FIELDS.concat(extraFields.filter(f => !ALL_FIELDS.includes(f)));
     populateFvTable(idx, fields, entry, foundEntry, r);
@@ -866,6 +912,10 @@
     const slot = document.getElementById("detail-slot-" + idx);
     if (slot) slot.innerHTML = "";
     if (currentDetailIdx === idx) currentDetailIdx = -1;
+  }
+
+  function publicEntryFields(entry) {
+    return Object.keys(entry || {}).filter(f => f !== "ID" && f !== "ENTRYTYPE" && !f.startsWith("_"));
   }
 
   // Close button inside four-view (event delegation)
@@ -885,11 +935,11 @@
     const r = results[idx];
     if (!r || !r.found) return;
     const foundEntry = r.found;
-    const ALL_FIELDS = ["title"].concat(B.COMPARED_FIELDS);
-    for (const f of ALL_FIELDS) {
-      const foundVal = (foundEntry[f] || "").toString();
-      if (foundVal) fieldEdits[idx][f] = { action: "found", value: foundVal };
-    }
+    const fields = new Set(publicEntryFields(parsedEntries[idx]).concat(publicEntryFields(foundEntry)));
+    fields.forEach(f => {
+      const foundVal = Object.prototype.hasOwnProperty.call(foundEntry, f) ? (foundEntry[f] || "").toString() : "";
+      fieldEdits[idx][f] = { action: "found", value: foundVal };
+    });
     refreshFvTable(idx);
     refreshDetailDiff(idx);
   });

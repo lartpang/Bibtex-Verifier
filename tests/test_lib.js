@@ -324,6 +324,22 @@ test("enrichments don't cause updated status", () => {
   assert.ok(result.field_diffs.some(d => d.field === "doi"), "should report doi enrichment");
 });
 
+test("missing found value for a user-provided field needs update", () => {
+  const orig = { title: "Test Paper", year: "2023", note: "Accessed 2026-05-21" };
+  const found = { title: "Test Paper", year: "2023" };
+  const result = lib.compareEntry(orig, found);
+  assert.strictEqual(result.status, "updated");
+  assert.ok(result.field_diffs.some(d => d.field === "note" && d.found === ""));
+});
+
+test("configured ignored fields are excluded from comparison", () => {
+  const orig = { title: "Test Paper", year: "2023", note: "Accessed 2026-05-21" };
+  const found = { title: "Test Paper", year: "2023" };
+  const result = lib.compareEntry(orig, found, { ignoredFields: ["note"] });
+  assert.strictEqual(result.status, "verified");
+  assert.ok(!result.field_diffs.some(d => d.field === "note"));
+});
+
 test("verified when DOI and journal only differ by braces or case", () => {
   const orig = {
     title: "Test Paper",

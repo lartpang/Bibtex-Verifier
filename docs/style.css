@@ -1935,6 +1935,31 @@ code {
   margin-bottom: 0;
 }
 
+.ignored-fields-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.35rem 0;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ignored-fields-input {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.ignored-fields-input:focus { border-color: var(--accent); }
+
 .api-key-row {
   display: flex;
   flex-direction: column;
