@@ -738,7 +738,7 @@
       const moreItems = rest.map((c, i) => renderItem(c, i + 3)).join("");
       moreHTML = '<button class="candidates-more-btn" data-entry="' + idx + '"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' + rest.length + ' ' + t("candidates_more") + '</button><div class="candidates-extra">' + moreItems + '</div>';
     }
-    return '<div class="candidates-panel"><div class="candidates-header"><span class="candidates-title">' + t("candidates_title") + '</span><span class="candidates-count">' + r.candidates.length + '</span></div>' + itemsHTML + moreHTML + '</div>';
+    return '<div class="candidates-panel"><div class="candidates-header"><span class="candidates-title">' + t("candidates_title") + ' (' + r.candidates.length + ')</span></div>' + itemsHTML + moreHTML + '</div>';
   }
 
   function buildCardHTML(r) {
@@ -756,10 +756,10 @@
     const searchQuery = encodeURIComponent(B.stripLatex(r.title || ""));
     const searchLinksHTML = (r.title || "").trim()
       ? '<div class="search-links">' +
-          '<a class="search-link" href="https://scholar.google.com/scholar?q=' + searchQuery + '" target="_blank" rel="noopener" title="Google Scholar"><span class="search-link-label">G</span></a>' +
-          '<a class="search-link" href="https://www.semanticscholar.org/search?q=' + searchQuery + '" target="_blank" rel="noopener" title="Semantic Scholar"><span class="search-link-label">S2</span></a>' +
-          '<a class="search-link" href="https://dblp.org/search?q=' + searchQuery + '" target="_blank" rel="noopener" title="DBLP"><span class="search-link-label">D</span></a>' +
-          '<a class="search-link" href="https://zenodo.org/search?q=' + searchQuery + '" target="_blank" rel="noopener" title="Zenodo"><span class="search-link-label">Z</span></a>' +
+          '<a class="search-link" href="https://scholar.google.com/scholar?q=' + searchQuery + '" target="_blank" rel="noopener" title="Google Scholar" aria-label="Search Google Scholar"><span class="search-link-icon search-link-google">G</span></a>' +
+          '<a class="search-link" href="https://www.semanticscholar.org/search?q=' + searchQuery + '" target="_blank" rel="noopener" title="Semantic Scholar" aria-label="Search Semantic Scholar"><span class="search-link-icon search-link-s2">S2</span></a>' +
+          '<a class="search-link" href="https://dblp.org/search?q=' + searchQuery + '" target="_blank" rel="noopener" title="DBLP" aria-label="Search DBLP"><span class="search-link-icon search-link-dblp">D</span></a>' +
+          '<a class="search-link" href="https://zenodo.org/search?q=' + searchQuery + '" target="_blank" rel="noopener" title="Zenodo" aria-label="Search Zenodo"><span class="search-link-icon search-link-zenodo">Z</span></a>' +
         '</div>'
       : "";
 
@@ -768,31 +768,9 @@
       ? '<span class="initial-match-icon" title="Good initial match" aria-label="Good initial match"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>'
       : "";
     const positionHTML = '<span class="entry-list-position" data-entry-position="' + idx + '"></span>';
-    const headerHTML = '<div class="entry-header" role="button" tabindex="0" aria-expanded="false" data-entry-toggle="' + idx + '"><div class="entry-header-main">' + collapseIcon + positionHTML + '<div class="entry-header-text"><div class="entry-title">' + esc(r.title || t("no_title")) + '</div><div class="entry-meta">' + goodMatchIcon + '<span>' + esc(r.entry_id) + ' &middot; ' + esc(r.entry_type) + '</span></div></div></div><div class="entry-header-aside">' + searchLinksHTML + '<div class="entry-tags">' + (r.duplicate_of ? '<span class="status-tag tag-duplicate">' + t("status_duplicate") + '</span>' : "") + '<span class="status-tag tag-' + (editableDetail ? "review" : escAttr(r.status)) + '">' + statusLabel(r.status) + '</span></div></div></div>';
+    const headerHTML = '<div class="entry-header" role="button" tabindex="0" aria-expanded="false" data-entry-toggle="' + idx + '"><div class="entry-header-main"><div class="entry-header-index">' + collapseIcon + positionHTML + '</div><div class="entry-header-text"><div class="entry-title">' + esc(r.title || t("no_title")) + '</div><div class="entry-meta">' + goodMatchIcon + '<span>' + esc(r.entry_id) + ' &middot; ' + esc(r.entry_type) + '</span></div></div></div><div class="entry-header-aside">' + searchLinksHTML + '</div></div>';
 
     if (editableDetail) {
-      // Candidates panel
-      let candidatesHTML = "";
-      if (r.candidates && r.candidates.length > 0) {
-        const ct = B.stripLatex(r.title || "");
-        const top3 = r.candidates.slice(0, 3), rest = r.candidates.slice(3);
-        const renderItem = (c, ci) => {
-          const score = Math.round(B.titleSimilarity(ct, c.title || ""));
-          const scoreClass = score >= 85 ? "score-high" : score >= 70 ? "score-mid" : "score-low";
-          const isActive = ci === (r.selectedCandidateIdx || 0);
-          const src = c._source || "";
-          const meta = [c.year, c.journal || c.booktitle, src].filter(Boolean).join(" · ");
-          const selLabel = isActive ? '<span class="candidate-selected-label">' + t("selected") + '</span>' : "";
-          return '<button class="candidate-item' + (isActive ? " active" : "") + '" data-entry="' + idx + '" data-candidate="' + ci + '"><span class="candidate-rank">#' + (ci+1) + '</span><span class="candidate-body"><span class="candidate-title">' + esc(c.title || t("no_title")) + '</span><span class="candidate-meta">' + esc(meta) + '</span></span><span class="candidate-score ' + scoreClass + '">' + score + '%</span>' + selLabel + '</button>';
-        };
-        let itemsHTML = top3.map((c, i) => renderItem(c, i)).join("");
-        let moreHTML = "";
-        if (rest.length) {
-          const moreItems = rest.map((c, i) => renderItem(c, i + 3)).join("");
-          moreHTML = '<button class="candidates-more-btn" data-entry="' + idx + '"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' + rest.length + ' ' + t("candidates_more") + '</button><div class="candidates-extra">' + moreItems + '</div>';
-        }
-        candidatesHTML = '<div class="candidates-panel"><div class="candidates-header"><span class="candidates-title">' + t("candidates_title") + '</span><span class="candidates-count">' + r.candidates.length + '</span></div>' + itemsHTML + moreHTML + '</div>';
-      }
       const detailSlot = '<div class="entry-detail-slot" id="detail-slot-' + idx + '"></div>';
       return headerHTML + '<div class="entry-body">' + dupHTML + revHTML + candidateListHTML + detailSlot + '</div>';
     } else {
