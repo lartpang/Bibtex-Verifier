@@ -650,6 +650,36 @@
     ].filter(Boolean).join(" "));
   }
 
+  function extractUrlFromText(text) {
+    const value = String(text || "");
+    const latexUrl = /\\url\{([^}]+)\}/i.exec(value);
+    if (latexUrl) return latexUrl[1].trim();
+    const m = /https?:\/\/[^\s{}"<>\\]+/i.exec(value);
+    return m ? m[0].replace(/[}\]\)\s.,;]+$/g, "") : "";
+  }
+
+  function urlFromEntry(entry = {}) {
+    return extractUrlFromText([
+      entry.url,
+      entry.howpublished,
+      entry.note,
+    ].filter(Boolean).join(" "));
+  }
+
+  function isLikelyNonPublicationEntry(entry = {}) {
+    const type = String(entry.ENTRYTYPE || entry.entry_type || "").toLowerCase();
+    const url = urlFromEntry(entry);
+    if (!url) return false;
+    if (arxivIdFromEntry(entry) || hasZenodoSignal(entry)) return false;
+    const publicationTypes = new Set(["article", "inproceedings", "conference", "proceedings", "incollection", "book", "inbook", "phdthesis", "mastersthesis"]);
+    if (publicationTypes.has(type)) return false;
+    const nonPublicationTypes = new Set(["software", "online", "www", "webpage", "electronic", "manual"]);
+    if (nonPublicationTypes.has(type)) return true;
+    if (type === "misc" || type === "unpublished")
+      return !entry.journal && !entry.booktitle && !doiFromEntry(entry);
+    return false;
+  }
+
   function normalizeArxivId(id) {
     return String(id || "")
       .trim()
@@ -1015,86 +1045,6 @@
     };
   }
 
-  const CVF_CONFERENCES = {
-    cvpr: {
-      canonical: "CVPR",
-      urlPattern: "CVPR",
-      aliases: ["computer vision and pattern recognition"],
-    },
-    iccv: {
-      canonical: "ICCV",
-      urlPattern: "ICCV",
-      aliases: ["international conference on computer vision"],
-    },
-    wacv: {
-      canonical: "WACV",
-      urlPattern: "WACV",
-      aliases: ["winter conference on applications of computer vision"],
-    },
-  };
-
-  function cvfConfFromEntry(entry = {}) {
-    const venue = stripLatex(String(entry.booktitle || entry.journal || "")).toLowerCase();
-    const year = String(entry.year || "");
-    for (const [key, conf] of Object.entries(CVF_CONFERENCES)) {
-      const names = [key, conf.canonical.toLowerCase(), ...(conf.aliases || [])];
-      if (names.some(name => venue.includes(name))) {
-        return { ...conf, year, url: `https://openaccess.thecvf.com/${conf.urlPattern}${year}?day=all` };
-      }
-    }
-    return null;
-  }
-
-  function cvfPageToCandidates(html, confInfo = {}) {
-    const content = String(html || "");
-    const papers = [];
-    const canonical = confInfo.canonical || "";
-    const year = confInfo.year || "";
-
-    // CVF HTML: <dt class="ptitle"><br><a href=...>title</a></dt> followed by <dd>authors</dd>
-    const dtRe = /<dt[^>]*class=["']?ptitle["']?[^>]*>[\s\S]*?<a\s+href=["']?([^"'\s>]+)["']?[^>]*>([\s\S]*?)<\/a>/gi;
-    const ddRe = /<dd[^>]*>([\s\S]*?)<\/dd>/i;
-
-    let m;
-    while ((m = dtRe.exec(content)) !== null) {
-      const href = m[1] || "";
-      const rawTitle = m[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-      if (!rawTitle || rawTitle.length < 10) continue;
-      if (/^(Day|All Papers|Papers|Workshop|Main Conference|CVPR|ICCV|WACV|Open Access)/i.test(rawTitle)) continue;
-
-      const afterDt = content.slice(dtRe.lastIndex);
-      const ddMatch = ddRe.exec(afterDt);
-      let authors = "";
-      if (ddMatch) {
-        authors = ddMatch[1]
-          .replace(/<a[^>]*onclick[^>]*>(.*?)<\/a>/gi, "$1")
-          .replace(/<[^>]+>/g, "")
-          .replace(/\s+/g, " ")
-          .trim()
-          .replace(/\*$/g, "");
-      }
-
-      const url = href.startsWith("http") ? href : `https://openaccess.thecvf.com${href.startsWith("/") ? "" : "/"}${href}`;
-
-      papers.push({
-        title: rawTitle,
-        author: authors,
-        year,
-        booktitle: canonical,
-        journal: "",
-        volume: "",
-        number: "",
-        pages: "",
-        doi: "",
-        publisher: "",
-        url,
-        _source: "cvf",
-        _source_url: url,
-      });
-    }
-    return papers;
-  }
-
   function openreviewToStandard(note) {
     const content = note?.content || {};
     const noteId = String(note?.forum || note?.id || "").trim();
@@ -1138,13 +1088,19 @@
       if (yearFromVenue) year = yearFromVenue[1];
     }
 
-    const isJournal = !booktitle && journal;
+    const rejectedOrSubmitted = /\b(submitted|under review|withdrawn|rejected|desk rejected)\b/i.test(venue);
+    const acceptedOrPublished = !rejectedOrSubmitted && (
+      !!booktitle || !!journal || /\b(accepted|published|proceedings|conference|poster|oral|spotlight|journal|transactions|tmlr)\b/i.test(venue)
+    );
+    if (!acceptedOrPublished && venue && !booktitle && !journal) journal = "OpenReview preprint";
+
+    const isJournal = !booktitle && journal && journal !== "OpenReview preprint";
     return {
       title,
       author: authors,
       year,
       journal: isJournal ? (journal || venue) : "",
-      booktitle: booktitle || (!isJournal ? venue : ""),
+      booktitle: acceptedOrPublished ? (booktitle || (!isJournal ? venue : "")) : "",
       volume: "",
       number: "",
       pages: "",
@@ -1153,6 +1109,7 @@
       url: doi ? `https://doi.org/${doi}` : url,
       _source: "openreview",
       _source_url: noteId ? `https://openreview.net/forum?id=${encodeURIComponent(noteId)}` : url,
+      _openreview_status: acceptedOrPublished ? "published" : "preprint",
     };
   }
 
@@ -1370,6 +1327,7 @@
 
   function classifyVersion(entry) {
     const type = (entry.ENTRYTYPE || entry.entry_type || "").toLowerCase();
+    if (String(entry._source || "").toLowerCase().includes("openreview") && entry._openreview_status === "preprint") return "preprint";
     const crossrefType = String(entry._crossref_type || "").toLowerCase();
     if (crossrefType === "posted-content") return "preprint";
     if (crossrefType === "journal-article" || crossrefType === "journal") return "journal";
@@ -1500,6 +1458,9 @@
   exports.normalizeDoi = normalizeDoi;
   exports.extractDoiFromText = extractDoiFromText;
   exports.doiFromEntry = doiFromEntry;
+  exports.extractUrlFromText = extractUrlFromText;
+  exports.urlFromEntry = urlFromEntry;
+  exports.isLikelyNonPublicationEntry = isLikelyNonPublicationEntry;
   exports.isArxivCandidate = isArxivCandidate;
   exports.normalizeArxivId = normalizeArxivId;
   exports.extractArxivIdFromText = extractArxivIdFromText;
@@ -1515,9 +1476,6 @@
   exports.arxivToStandard = arxivToStandard;
   exports.openreviewToStandard = openreviewToStandard;
   exports.dblpToStandard = dblpToStandard;
-  exports.cvfConferences = CVF_CONFERENCES;
-  exports.cvfConfFromEntry = cvfConfFromEntry;
-  exports.cvfPageToCandidates = cvfPageToCandidates;
   exports.arxivAbsPageToStandard = arxivAbsPageToStandard;
   exports.extractLastNames = extractLastNames;
   exports.isSamePaper = isSamePaper;

@@ -37,8 +37,8 @@
       paste_first: "Please paste your BibTeX content first.",
       select_source: "Select at least one search source.",
       settings_title: "Search Sources (Tiered)",
-      settings_help: "Layered search: Tier 1 (published records) to Tier 2 (conference proceedings) to Tier 3 (repositories and preprints). Zenodo and arXiv are always enabled as fallback sources; Zenodo is queried only when the entry already mentions Zenodo.",
-      tier1: "Tier 1 — Published Records", tier2: "Tier 2 — Conference Proceedings", tier3: "Tier 3 — Repositories & Preprints",
+      settings_help: "Layered search: non-publication links are checked directly; Zenodo and arXiv are always enabled as fallback sources; selected published-record sources run before OpenReview.",
+      tier1: "Tier 1 — Published Records", tier2: "Publication Signals", tier3: "Fallback Sources",
       copy: "Copy", copied: "Copied!",
       toc_title: "Contents",
       clear_field: "Clear field",
@@ -86,8 +86,8 @@
       paste_first: "请先粘贴 BibTeX 内容。",
       select_source: "请至少选择一个检索来源。",
       settings_title: "检索来源（分层）",
-      settings_help: "分层检索：第一层（已出版记录）到第二层（会议论文集）到第三层（仓储记录与预印本）。Zenodo 和 arXiv 作为保底来源始终启用；仅当条目已包含 Zenodo 线索时才查询 Zenodo。",
-      tier1: "第一层 — 已出版记录", tier2: "第二层 — 会议论文集", tier3: "第三层 — 仓储记录与预印本",
+      settings_help: "分层检索：非文献链接会直接检查；Zenodo 和 arXiv 作为保底来源始终启用；已勾选的出版记录来源会先于 OpenReview 运行。",
+      tier1: "第一层 — 已出版记录", tier2: "出版线索", tier3: "保底来源",
       copy: "复制", copied: "已复制！",
       toc_title: "目录",
       clear_field: "清空字段",
@@ -310,10 +310,10 @@
     searchEngineOptions.querySelectorAll("input[data-engine]").forEach(el => { prev[el.dataset.engine] = el.checked; });
     const tiers = [
       { key: "tier1", engines: [
-        { id: "dblp", label: "DBLP" }, { id: "crossref", label: "CrossRef" }, { id: "semantic_scholar", label: "Semantic Scholar" }
+        { id: "crossref", label: "CrossRef" }, { id: "semantic_scholar", label: "Semantic Scholar" }, { id: "dblp", label: "DBLP" }
       ]},
       { key: "tier2", engines: [
-        { id: "cvf", label: "CVF (CVPR/ICCV/WACV)" }, { id: "openreview", label: "OpenReview" }
+        { id: "openreview", label: "OpenReview" }
       ]},
       { key: "tier3", fixed: true, engines: [{ id: "zenodo", label: "Zenodo" }, { id: "arxiv", label: "arXiv" }] }
     ];
@@ -546,9 +546,9 @@
       const pct = Math.round(((i + 1) / total) * 100);
       barProgressFill.style.width = pct + "%";
       barProgressText.textContent = t("verifying") + " " + (i+1) + " / " + total + ": " + title.slice(0, 50);
-      if (!title.trim()) { addLog("warning", "Skipped entry without title: " + r.entry_id); r.status = "not_found"; replaceCard(i); updateSummary(); continue; }
+      if (!title.trim() && !(B.isLikelyNonPublicationEntry && B.isLikelyNonPublicationEntry(entry))) { addLog("warning", "Skipped entry without title: " + r.entry_id); r.status = "not_found"; replaceCard(i); updateSummary(); continue; }
       let lookupResult = { best: null, candidates: [] };
-      try { lookupResult = await BV.lookupTiered(title, entry, addLog, getSelectedSearchEngines, getApiKey); } catch (err) { console.warn("Lookup failed:", err); }
+      try { lookupResult = await BV.lookupTiered(title || entry.ID || "", entry, addLog, getSelectedSearchEngines, getApiKey); } catch (err) { console.warn("Lookup failed:", err); }
       const { best: found, candidates } = lookupResult;
       r.candidates = candidates || [];
       r.selectedCandidateIdx = 0;
@@ -699,7 +699,6 @@
     if ((source.includes("semantic_scholar") || source === "ss") && doi) return "https://api.semanticscholar.org/graph/v1/paper/DOI:" + encodeURIComponent(doi);
     if (source.includes("arxiv") && c?.url) return c.url;
     if (source.includes("zenodo") && c?.url && /zenodo\.org/i.test(c.url)) return c.url;
-    if (source.includes("cvf") && c?.url) return c.url;
     const direct = [c?.url, c?.link].map(v => String(v || "").trim()).find(v => /^https?:\/\//i.test(v) && !/^https?:\/\/(?:dx\.)?doi\.org\//i.test(v));
     return direct || "";
   }

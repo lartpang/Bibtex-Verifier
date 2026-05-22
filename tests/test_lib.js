@@ -600,6 +600,32 @@ test("extracts generic DOI from DOI field and URL", () => {
   );
 });
 
+test("extracts URL from url and howpublished fields", () => {
+  assert.strictEqual(
+    lib.urlFromEntry({ howpublished: "\\url{https://example.com/tool}" }),
+    "https://example.com/tool"
+  );
+  assert.strictEqual(
+    lib.urlFromEntry({ note: "Available at https://example.com/page." }),
+    "https://example.com/page"
+  );
+});
+
+test("classifies non-publication web and software entries conservatively", () => {
+  assert.strictEqual(
+    lib.isLikelyNonPublicationEntry({ ENTRYTYPE: "software", title: "Tool", url: "https://example.com/tool" }),
+    true
+  );
+  assert.strictEqual(
+    lib.isLikelyNonPublicationEntry({ ENTRYTYPE: "misc", title: "Paper", doi: "10.1145/123", url: "https://doi.org/10.1145/123" }),
+    false
+  );
+  assert.strictEqual(
+    lib.isLikelyNonPublicationEntry({ ENTRYTYPE: "article", title: "Paper", url: "https://example.com/paper" }),
+    false
+  );
+});
+
 // ═══════════════════════════════════════════════════════════════════════
 console.log("\n── dblpToStandard ──");
 
@@ -627,7 +653,7 @@ test("converts DBLP response with mixed field shapes", () => {
 // ═══════════════════════════════════════════════════════════════════════
 console.log("\n── openreviewToStandard ──");
 
-test("converts OpenReview search note without bibtex", () => {
+test("converts OpenReview search note without bibtex as preprint unless accepted", () => {
   const result = lib.openreviewToStandard({
     id: "abc123",
     forum: "forum123",
@@ -642,9 +668,25 @@ test("converts OpenReview search note without bibtex", () => {
   assert.strictEqual(result.title, "OpenReview Paper");
   assert.strictEqual(result.author, "Jane Doe and John Smith");
   assert.strictEqual(result.year, "2025");
-  assert.strictEqual(result.booktitle, "ICLR 2025");
+  assert.strictEqual(result.booktitle, "");
+  assert.strictEqual(result._openreview_status, "preprint");
+  assert.strictEqual(lib.classifyVersion(result), "preprint");
   assert.strictEqual(result._source, "openreview");
   assert.strictEqual(result._source_url, "https://openreview.net/forum?id=forum123");
+});
+
+test("converts accepted OpenReview venue as publication candidate", () => {
+  const result = lib.openreviewToStandard({
+    id: "abc123",
+    content: {
+      title: { value: "Accepted OpenReview Paper" },
+      venue: { value: "ICLR 2025 Conference Poster" },
+    },
+  });
+
+  assert.strictEqual(result.booktitle, "ICLR 2025 Conference Poster");
+  assert.strictEqual(result._openreview_status, "published");
+  assert.strictEqual(lib.classifyVersion(result), "conference");
 });
 
 // ═══════════════════════════════════════════════════════════════════════
